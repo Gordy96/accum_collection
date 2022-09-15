@@ -1,4 +1,4 @@
-module templateautoload
+module accumulator
 
 go 1.18
 
