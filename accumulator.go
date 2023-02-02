@@ -41,7 +41,9 @@ func (a *Accumulator[T]) run() {
 	for {
 		select {
 		case <-a.timer.C:
+			a.mux.Lock()
 			a.fanOut()
+			a.mux.Unlock()
 		case <-a.stopCtx.Done():
 			close(a.out)
 			return
@@ -54,8 +56,6 @@ func (a *Accumulator[T]) Stop() {
 }
 
 func (a *Accumulator[T]) fanOut() {
-	a.mux.Lock()
-	defer a.mux.Unlock()
 	if len(a.storage) > 0 {
 		var c = make([]T, len(a.storage), len(a.storage))
 		copy(c, a.storage)
@@ -71,14 +71,14 @@ func (a *Accumulator[T]) Enqueue(t T) {
 	if a.stopCtx.Err() != nil {
 		panic("accumulator: Enqueue called on uninitialized Accumulator")
 	}
+	a.mux.Lock()
+	defer a.mux.Unlock()
 	if a.cap > 0 && len(a.storage) == a.cap {
 		a.fanOut()
 	}
 	if atomic.CompareAndSwapInt32(&a.timerStarted, 0, 1) {
 		a.timer.Reset(a.delay)
 	}
-	a.mux.Lock()
-	defer a.mux.Unlock()
 	a.storage = append(a.storage, t)
 }
 
