@@ -1,13 +1,14 @@
 package accumulator
 
 import (
+	"context"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
 
 func TestOne(t *testing.T) {
-	a := NewAccumulator[string](200*time.Millisecond, 0)
+	a := NewAccumulator[string](context.Background(), 200*time.Millisecond, 0)
 	defer a.Stop()
 	var res []string
 	a.OnReady(func(d []string) {
@@ -21,7 +22,7 @@ func TestOne(t *testing.T) {
 }
 
 func TestSequence(t *testing.T) {
-	a := NewAccumulator[string](200*time.Millisecond, 0)
+	a := NewAccumulator[string](context.Background(), 200*time.Millisecond, 0)
 	defer a.Stop()
 	var res []string
 	a.OnReady(func(d []string) {
@@ -40,7 +41,7 @@ func TestSequence(t *testing.T) {
 }
 
 func TestCapOverflow(t *testing.T) {
-	a := NewAccumulator[string](200*time.Millisecond, 3)
+	a := NewAccumulator[string](context.Background(), 200*time.Millisecond, 3)
 	defer a.Stop()
 	var res []string
 	a.OnReady(func(d []string) {

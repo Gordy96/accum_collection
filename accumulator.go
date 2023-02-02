@@ -1,13 +1,14 @@
 package accumulator
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-//Accumulator is a concurrency-safe "debounce" collection that starts timer after first enqueued item and collects until
-//time is out and then sends slice of enqueued items to out channel
+// Accumulator is a concurrency-safe "debounce" collection that starts timer after first enqueued item and holds enqueued until
+// time is out or the cap (limit) is reached and then sends slice of enqueued items to out channel. 0 cap is ignored
 type Accumulator[T any] struct {
 	out          chan []T
 	storage      []T
@@ -15,18 +16,21 @@ type Accumulator[T any] struct {
 	timerStarted int32
 	delay        time.Duration
 	mux          sync.Mutex
-	running      int32
-	cap          int32
+	stopCtx      context.Context
+	stopFn       context.CancelFunc
+	cap          int
 }
 
-func NewAccumulator[T any](delay time.Duration, cap int32) *Accumulator[T] {
+func NewAccumulator[T any](ctx context.Context, delay time.Duration, cap int) *Accumulator[T] {
 	timer := time.NewTimer(delay)
 	timer.Stop()
+	stopCtx, stopFn := context.WithCancel(ctx)
 	a := &Accumulator[T]{
 		out:     make(chan []T),
 		delay:   delay,
 		timer:   timer,
-		running: 1,
+		stopCtx: stopCtx,
+		stopFn:  stopFn,
 		cap:     cap,
 	}
 	go a.run()
@@ -38,17 +42,15 @@ func (a *Accumulator[T]) run() {
 		select {
 		case <-a.timer.C:
 			a.fanOut()
-		default:
-			if atomic.LoadInt32(&a.running) == 0 {
-				close(a.out)
-				return
-			}
+		case <-a.stopCtx.Done():
+			close(a.out)
+			return
 		}
 	}
 }
 
 func (a *Accumulator[T]) Stop() {
-	atomic.StoreInt32(&a.running, 0)
+	a.stopFn()
 }
 
 func (a *Accumulator[T]) fanOut() {
@@ -62,16 +64,14 @@ func (a *Accumulator[T]) fanOut() {
 			a.out <- c
 		}(c)
 	}
-	a.timerStarted = 0
+	atomic.StoreInt32(&a.timerStarted, 0)
 }
 
 func (a *Accumulator[T]) Enqueue(t T) {
-	if atomic.LoadInt32(&a.running) == 0 {
+	if a.stopCtx.Err() != nil {
 		panic("accumulator: Enqueue called on uninitialized Accumulator")
 	}
-	limit := atomic.LoadInt32(&a.cap)
-	l := int32(len(a.storage))
-	if limit > 0 && l == limit {
+	if a.cap > 0 && len(a.storage) == a.cap {
 		a.fanOut()
 	}
 	if atomic.CompareAndSwapInt32(&a.timerStarted, 0, 1) {
@@ -95,10 +95,8 @@ func (a *Accumulator[T]) OnReady(cb func([]T)) {
 					return
 				}
 				cb(d)
-			default:
-				if atomic.LoadInt32(&a.running) == 0 {
-					return
-				}
+			case <-a.stopCtx.Done():
+				return
 			}
 		}
 	}()
