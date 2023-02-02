@@ -1,4 +1,4 @@
-module accumulator
+module github.com/Gordy96/accumulator
 
 go 1.18
 
